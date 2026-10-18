@@ -2,13 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
+import { AuthProvider } from '@/context/AuthContext';
 import { Header } from '@/components/layout/Header';
 
 const renderHeader = () => {
   return render(
-    <BrowserRouter>
-      <Header />
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <Header />
+      </BrowserRouter>
+    </AuthProvider>
   );
 };
 

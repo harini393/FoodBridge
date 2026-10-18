@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { Menu, X, HeartHandshake, ArrowRight } from 'lucide-react';
+import { Menu, X, HeartHandshake, ArrowRight, LogOut } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 export const Header: React.FC = () => {
+  const { user, profile, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -85,19 +87,46 @@ export const Header: React.FC = () => {
 
           {/* Desktop Actions */}
           <div className="hidden md:flex items-center gap-3">
-            <Link
-              to="/login"
-              className="px-3.5 py-2 text-sm font-medium text-main hover:text-forest transition-colors rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest"
-            >
-              Sign In
-            </Link>
-            <Link
-              to="/register"
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-forest hover:bg-forest-hover active:bg-forest-dark rounded-lg transition-colors shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2"
-            >
-              <span>Get Started</span>
-              <ArrowRight className="w-4 h-4" aria-hidden="true" />
-            </Link>
+            {user ? (
+              <>
+                <Link
+                  to="/dashboard"
+                  className="px-3.5 py-2 text-sm font-semibold text-forest hover:bg-sage/50 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest"
+                >
+                  Dashboard
+                </Link>
+                <div className="flex items-center gap-2 pl-2 border-l border-border-subtle">
+                  <span className="text-xs font-medium text-main max-w-[120px] truncate">
+                    {profile?.fullName || user.email}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={logout}
+                    className="p-2 text-muted hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest"
+                    aria-label="Sign Out"
+                    title="Sign Out"
+                  >
+                    <LogOut className="w-4 h-4" aria-hidden="true" />
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="px-3.5 py-2 text-sm font-medium text-main hover:text-forest transition-colors rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest"
+                >
+                  Sign In
+                </Link>
+                <Link
+                  to="/register"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-forest hover:bg-forest-hover active:bg-forest-dark rounded-lg transition-colors shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest focus-visible:ring-offset-2"
+                >
+                  <span>Get Started</span>
+                  <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                </Link>
+              </>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
@@ -182,20 +211,47 @@ export const Header: React.FC = () => {
         </div>
 
         <div className="pt-6 border-t border-border-subtle flex flex-col gap-2.5">
-          <Link
-            to="/login"
-            onClick={() => setMobileMenuOpen(false)}
-            className="w-full text-center py-2.5 px-4 text-sm font-medium text-main hover:bg-sage/40 rounded-lg transition-colors border border-border-subtle"
-          >
-            Sign In
-          </Link>
-          <Link
-            to="/register"
-            onClick={() => setMobileMenuOpen(false)}
-            className="w-full text-center py-2.5 px-4 text-sm font-semibold text-white bg-forest hover:bg-forest-hover active:bg-forest-dark rounded-lg transition-colors shadow-subtle"
-          >
-            Get Started
-          </Link>
+          {user ? (
+            <>
+              <div className="px-3 py-2 bg-cream rounded-lg text-xs text-muted">
+                Signed in as <strong className="text-main">{profile?.fullName || user.email}</strong>
+              </div>
+              <Link
+                to="/dashboard"
+                onClick={() => setMobileMenuOpen(false)}
+                className="w-full text-center py-2.5 px-4 text-sm font-semibold text-white bg-forest hover:bg-forest-hover rounded-lg transition-colors shadow-subtle"
+              >
+                Go to Dashboard
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  logout();
+                }}
+                className="w-full text-center py-2 px-4 text-sm font-medium text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
+              >
+                Sign Out
+              </button>
+            </>
+          ) : (
+            <>
+              <Link
+                to="/login"
+                onClick={() => setMobileMenuOpen(false)}
+                className="w-full text-center py-2.5 px-4 text-sm font-medium text-main hover:bg-sage/40 rounded-lg transition-colors border border-border-subtle"
+              >
+                Sign In
+              </Link>
+              <Link
+                to="/register"
+                onClick={() => setMobileMenuOpen(false)}
+                className="w-full text-center py-2.5 px-4 text-sm font-semibold text-white bg-forest hover:bg-forest-hover active:bg-forest-dark rounded-lg transition-colors shadow-subtle"
+              >
+                Get Started
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </header>
