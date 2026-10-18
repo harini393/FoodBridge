@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Production build outputs
+dist/
+dist-ssr/
+
+# Environment files
+.env.local
+.env.*.local
+*.local
+
+# Firebase emulator debug logs
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+hub-debug.log*
+
+# Testing & Coverage
+coverage/
+
+# IDE & OS files
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# ESLint cache
+.eslintcache
