@@ -1,0 +1,215 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // Authentication & Role Helper Functions
+    // ------------------------------------------------------------------
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    function getUserData(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function currentUser() {
+      return getUserData(request.auth.uid);
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && currentUser().role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isActive() {
+      return isAuthenticated() && currentUser().accountStatus == 'active';
+    }
+
+    function isDonor() {
+      return hasRole('donor') && isActive();
+    }
+
+    function isVolunteer() {
+      return hasRole('volunteer') && isActive();
+    }
+
+    function isActiveNgo() {
+      return hasRole('ngo') && isActive();
+    }
+
+    function isNgoOfficer(ngoId) {
+      return isActiveNgo() && currentUser().ngoId == ngoId;
+    }
+
+    // ------------------------------------------------------------------
+    // 1. Users Collection (/users/{userId})
+    // ------------------------------------------------------------------
+    match /users/{userId} {
+      // Users can read their own profile; Admins can read all; NGOs can read volunteers and donors
+      allow read: if isUser(userId) || isAdmin() || (isActiveNgo() && resource.data.role in ['volunteer', 'donor']);
+
+      // Registration: Can only create own record, cannot self-assign admin role or active NGO status
+      allow create: if isUser(userId)
+                    && request.resource.data.uid == userId
+                    && request.resource.data.role in ['donor', 'volunteer', 'ngo']
+                    && (request.resource.data.role == 'ngo' ? request.resource.data.accountStatus == 'pending' : request.resource.data.accountStatus == 'active')
+                    && !('ngoId' in request.resource.data);
+
+      // Profile updates: Users can edit basic info (fullName, phone), but CANNOT alter role, accountStatus, or ngoId
+      allow update: if (isUser(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'accountStatus', 'ngoId', 'uid']))
+                    || isAdmin();
+
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------------
+    // 2. NGO Applications Collection (/ngoApplications/{applicationId})
+    // ------------------------------------------------------------------
+    match /ngoApplications/{applicationId} {
+      // The applying officer and Admins can view the application
+      allow read: if isAuthenticated() && (resource.data.officerUid == request.auth.uid || isAdmin());
+
+      // Only the applying officer can submit their initial pending application
+      allow create: if isAuthenticated()
+                    && request.resource.data.officerUid == request.auth.uid
+                    && request.resource.data.status == 'pending';
+
+      // Only Admins can approve, reject, or modify applications
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // 3. Verified NGOs Directory (/ngos/{ngoId})
+    // ------------------------------------------------------------------
+    match /ngos/{ngoId} {
+      // Authenticated participants can view verified NGO directory
+      allow read: if isAuthenticated();
+
+      // Only Admins can create or modify NGO organization records
+      allow write: if isAdmin();
+    }
+
+    // ------------------------------------------------------------------
+    // 4. Food Donations Collection (/donations/{donationId})
+    // ------------------------------------------------------------------
+    match /donations/{donationId} {
+      // Access is constrained by ownership and operational scope:
+      // - Admins: full access
+      // - Donors: only their own submitted donations
+      // - Active NGOs: pending donations in pool OR donations assigned to their NGO
+      // - Volunteers: only donations where they are the assigned courier
+      allow read: if isAdmin()
+                  || (isDonor() && resource.data.donorUid == request.auth.uid)
+                  || (isActiveNgo() && (resource.data.status == 'pendingReview' || resource.data.assignedNgoId == currentUser().ngoId))
+                  || (isVolunteer() && resource.data.assignedVolunteerUid == request.auth.uid);
+
+      // Only active donors can create donations with 'pendingReview' status
+      allow create: if isDonor()
+                    && request.resource.data.donorUid == request.auth.uid
+                    && request.resource.data.status == 'pendingReview'
+                    && !('assignedNgoId' in request.resource.data)
+                    && !('assignedVolunteerUid' in request.resource.data);
+
+      // Updates:
+      // - Donor: can submit a cancellation request before pickup
+      // - Managing NGO: can approve, assign, and update coordination details
+      // - Assigned Volunteer: can mark collected or delivered
+      // - Admin: full override
+      allow update: if isAdmin()
+                    || (isDonor() && resource.data.donorUid == request.auth.uid && resource.data.status in ['pendingReview', 'approved', 'volunteerAssigned'] && request.resource.data.status == 'cancellationRequested')
+                    || (isActiveNgo() && (resource.data.status == 'pendingReview' || resource.data.assignedNgoId == currentUser().ngoId))
+                    || (isVolunteer() && resource.data.assignedVolunteerUid == request.auth.uid && request.resource.data.status in ['collected', 'delivered']);
+
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------------
+    // 5. Recipients Directory (/recipients/{recipientId})
+    // ------------------------------------------------------------------
+    match /recipients/{recipientId} {
+      // Only the owning NGO officers and Admins can view and manage their recipient facilities
+      allow read: if isAdmin() || (isActiveNgo() && resource.data.ngoId == currentUser().ngoId);
+      allow create: if isActiveNgo() && request.resource.data.ngoId == currentUser().ngoId;
+      allow update, delete: if isAdmin() || (isActiveNgo() && resource.data.ngoId == currentUser().ngoId && request.resource.data.ngoId == resource.data.ngoId);
+    }
+
+    // ------------------------------------------------------------------
+    // 6. Volunteer Task Assignments (/assignments/{assignmentId})
+    // ------------------------------------------------------------------
+    match /assignments/{assignmentId} {
+      // Access granted to managing NGO, assigned volunteer, and Admin
+      allow read: if isAdmin()
+                  || (isActiveNgo() && resource.data.ngoId == currentUser().ngoId)
+                  || (isVolunteer() && resource.data.volunteerUid == request.auth.uid);
+
+      // Managing NGO creates assignment attempts
+      allow create: if isActiveNgo() && request.resource.data.ngoId == currentUser().ngoId;
+
+      // Status updates by volunteer (accept, decline, collect, deliver, fail) or managing NGO
+      allow update: if isAdmin()
+                    || (isActiveNgo() && resource.data.ngoId == currentUser().ngoId)
+                    || (isVolunteer() && resource.data.volunteerUid == request.auth.uid && request.resource.data.status in ['accepted', 'declined', 'collected', 'delivered', 'failed']);
+
+      // Never delete: Every assignment attempt is preserved for auditability
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // 7. Confirmed Deliveries (/deliveries/{deliveryId})
+    // ------------------------------------------------------------------
+    match /deliveries/{deliveryId} {
+      // Visible to parties in the custody chain (donor, assigned volunteer, managing NGO, admin)
+      allow read: if isAdmin()
+                  || (isActiveNgo() && resource.data.ngoId == currentUser().ngoId)
+                  || (isVolunteer() && resource.data.volunteerUid == request.auth.uid)
+                  || (isDonor() && resource.data.donorUid == request.auth.uid);
+
+      // Created only upon confirmed drop-off
+      allow create: if (isVolunteer() && request.resource.data.volunteerUid == request.auth.uid)
+                    || (isActiveNgo() && request.resource.data.ngoId == currentUser().ngoId)
+                    || isAdmin();
+
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // 8. Donation Status History (/donationStatusHistory/{historyId})
+    // ------------------------------------------------------------------
+    match /donationStatusHistory/{historyId} {
+      // Chronological status history is readable by authenticated stakeholders
+      allow read: if isAuthenticated() && (isAdmin() || isDonor() || isActiveNgo() || isVolunteer());
+
+      // Append-only audit trail
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // 9. Platform Security Audit Logs (/auditLogs/{logId})
+    // ------------------------------------------------------------------
+    match /auditLogs/{logId} {
+      // Security and audit logs are strictly readable only by Administrators
+      allow read: if isAdmin();
+
+      // Append-only for system and authenticated security operations
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+  }
+}

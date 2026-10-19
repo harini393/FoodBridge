@@ -1,0 +1,52 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Default deny all access
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/(jpeg|png|webp)')
+             && request.resource.size <= 5 * 1024 * 1024; // 5MB limit
+    }
+
+    function isPdfOrImage() {
+      return (request.resource.contentType.matches('image/(jpeg|png|webp)') || request.resource.contentType == 'application/pdf')
+             && request.resource.size <= 10 * 1024 * 1024; // 10MB limit
+    }
+
+    // 1. Food Donation Photographs
+    match /donations/{donationId}/{fileName} {
+      // Authenticated users in the network can view food condition photos
+      allow read: if isAuthenticated();
+
+      // Donors/uploaders can upload photos meeting file type and size restrictions
+      allow write: if isAuthenticated() && isImage();
+    }
+
+    // 2. NGO Verification Documents (Certificates, Tax Exemption, Registration)
+    match /ngo_documents/{officerUid}/{fileName} {
+      // Only the applying officer and platform administrators can view registration credentials
+      allow read: if isAuthenticated() && (request.auth.uid == officerUid || request.auth.token.role == 'admin');
+
+      // The applying officer can upload their organizational documentation
+      allow write: if isAuthenticated() && request.auth.uid == officerUid && isPdfOrImage();
+    }
+
+    // 3. Delivery Confirmation Proof Photos
+    match /delivery_proofs/{deliveryId}/{fileName} {
+      // Verified recipients and network participants can view delivery drop-off proof
+      allow read: if isAuthenticated();
+
+      // Volunteer courier or NGO officer can upload proof photo
+      allow write: if isAuthenticated() && isImage();
+    }
+  }
+}
